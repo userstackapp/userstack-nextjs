@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect } from 'react';
-import { useRouter } from 'next/router';
+'use client';
+
+import React, { createContext, useContext, useEffect, Suspense } from 'react';
+import { usePathname, useSearchParams, useParams } from 'next/navigation';
 
 const DEFAULT_API_URL = 'https://userstack.app/api/edge';
 const JWT_STORAGE_KEY = 'us-jwt';
@@ -37,7 +39,9 @@ export const UserstackProvider: React.FC<UserstackProviderProps> = ({
   customApiUrl = DEFAULT_API_URL,
   debugMode = false,
 }) => {
-  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const params = useParams();
 
   const log = {
     normal: (...args: any[]) => {
@@ -120,30 +124,56 @@ export const UserstackProvider: React.FC<UserstackProviderProps> = ({
   };
 
   useEffect(() => {
-    function onRouteChangeComplete() {
-      track('app', 'pageview', {
-        path: window.location.href,
-        route: router.route,
-        query: router.query,
-      });
-    }
-    router.events.on('routeChangeComplete', onRouteChangeComplete);
+    const currentUrlParams = searchParams.toString();
+    const jsonParams = getJsonFromUrl(currentUrlParams);
 
-    return () => {
-      router.events.off('routeChangeComplete', onRouteChangeComplete);
-    };
-  }, []);
+    track('app', 'pageview', {
+      path: pathname,
+      params: params,
+      searchParams: jsonParams,
+      route: formRouteString(pathname, params),
+    });
+  }, [pathname, params, searchParams]);
+
+  function getJsonFromUrl(url: string) {
+    const queryParams = new URLSearchParams(url);
+    let jsonObj: any = {};
+    queryParams.forEach((value, key) => {
+      if (jsonObj.hasOwnProperty(key)) {
+        if (!Array.isArray(jsonObj[key])) {
+          jsonObj[key] = [jsonObj[key]];
+        }
+        jsonObj[key].push(value);
+      } else {
+        jsonObj[key] = value;
+      }
+    });
+
+    return jsonObj;
+  }
+
+  const formRouteString = (path: string, params: any) => {
+    if (!params) return path;
+
+    let newPath = path;
+    Object.keys(params).forEach((key) => {
+      newPath = newPath.replace(`${params[key]}`, `[${key}]`);
+    });
+    return newPath;
+  };
 
   return (
-    <UserstackContext.Provider
-      value={{
-        identify,
-        forget,
-        track,
-      }}
-    >
-      {children}
-    </UserstackContext.Provider>
+    <Suspense>
+      <UserstackContext.Provider
+        value={{
+          identify,
+          forget,
+          track,
+        }}
+      >
+        {children}
+      </UserstackContext.Provider>
+    </Suspense>
   );
 };
 
