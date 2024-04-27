@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 const DEFAULT_API_URL = 'https://userstack.app/api/edge';
 const JWT_STORAGE_KEY = 'us-jwt';
@@ -7,6 +8,7 @@ interface UserstackProviderProps {
   children: React.ReactNode;
   projectKey: string;
   customApiUrl?: string;
+  debugMode?: boolean;
 }
 
 interface IdentifyProps {
@@ -33,7 +35,23 @@ export const UserstackProvider: React.FC<UserstackProviderProps> = ({
   children,
   projectKey,
   customApiUrl = DEFAULT_API_URL,
+  debugMode = false,
 }) => {
+  const router = useRouter();
+
+  const log = {
+    normal: (...args: any[]) => {
+      if (debugMode) {
+        console.log('[Userstack]', ...args);
+      }
+    },
+    error: (...args: any[]) => {
+      if (debugMode) {
+        console.error('[Userstack]', ...args);
+      }
+    },
+  };
+
   const identify = async ({
     googleToken,
     firebaseToken,
@@ -64,21 +82,22 @@ export const UserstackProvider: React.FC<UserstackProviderProps> = ({
       const data = await response.json();
       const { jwt, expiresIn } = data;
       storage.set(JWT_STORAGE_KEY, jwt);
-      console.log('[Userstack] successfully identified user.');
+      log.normal('Successfully identified user.');
       track('app', 'signin');
     } else {
       const responseText = await response.text();
-      console.error('[Userstack] failed to identify user:', responseText);
+      log.error('Failed to identify user:', responseText);
       throw new Error(responseText);
     }
   };
 
   const forget = (): void => {
     storage.delete(JWT_STORAGE_KEY);
-    console.log('[Userstack] Session ended');
+    log.normal('Session ended');
   };
 
   const track = async (feature: string, event?: string, data?: any) => {
+    log.normal('Track event:', feature, event, data);
     const jwt = storage.get(JWT_STORAGE_KEY);
 
     if (jwt) {
@@ -96,14 +115,23 @@ export const UserstackProvider: React.FC<UserstackProviderProps> = ({
         }),
       });
     } else {
-      console.error('[Userstack] Error tracking event: No token');
+      log.error('Error tracking event: No token');
     }
   };
 
   useEffect(() => {
-    track('app', 'pageview', {
-      location: window.location.href,
-    });
+    function onRouteChangeComplete() {
+      track('app', 'pageview', {
+        path: window.location.href,
+        route: router.route,
+        query: router.query,
+      });
+    }
+    router.events.on('routeChangeComplete', onRouteChangeComplete);
+
+    return () => {
+      router.events.off('routeChangeComplete', onRouteChangeComplete);
+    };
   }, []);
 
   return (
